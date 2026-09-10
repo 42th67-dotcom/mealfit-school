@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MealFit School - 맞춤형 학교 급식 섭취 관리</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#111827; --card:#172033; --muted:#94a3b8;
+    --text:#f8fafc; --accent:#38bdf8; --accent2:#22c55e; --warn:#f59e0b; --danger:#ef4444;
+    --line:#263247;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Inter, Pretendard, "Noto Sans KR", system-ui, sans-serif;background:linear-gradient(160deg,#07111f,#0f172a 40%,#111827);color:var(--text)}
+  .wrap{max-width:1180px;margin:0 auto;padding:28px 18px 60px}
+  .hero{display:flex;justify-content:space-between;gap:20px;align-items:end;margin-bottom:18px}
+  .hero h1{margin:0;font-size:clamp(28px,4vw,44px)}
+  .hero p{margin:8px 0 0;color:var(--muted)}
+  .badge{display:inline-block;padding:7px 11px;border-radius:999px;background:#0c4a6e;color:#bae6fd;font-size:13px}
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:16px}
+  .panel{background:rgba(17,24,39,.94);border:1px solid var(--line);border-radius:20px;padding:18px;box-shadow:0 18px 40px rgba(0,0,0,.2)}
+  h2{font-size:18px;margin:0 0 14px}
+  h3{font-size:15px;margin:16px 0 8px;color:#dbeafe}
+  label{font-size:13px;color:#cbd5e1}
+  input,select{width:100%;margin-top:6px;background:#0b1220;color:white;border:1px solid #334155;border-radius:10px;padding:10px 11px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .checks{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .check{display:flex;align-items:center;gap:8px;background:#0b1220;padding:9px;border-radius:10px;border:1px solid #24324a;font-size:13px}
+  .check input{width:auto;margin:0}
+  button{border:0;border-radius:12px;padding:12px 14px;font-weight:700;cursor:pointer}
+  .primary{width:100%;background:linear-gradient(90deg,#0ea5e9,#22c55e);color:#03131d;margin-top:14px}
+  .secondary{background:#1e293b;color:#e2e8f0}
+  .menu-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .food{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;position:relative}
+  .food.must{border-color:#166534}
+  .food.limit{border-color:#92400e}
+  .food.avoid{border-color:#7f1d1d;opacity:.78}
+  .food .title{font-weight:800;font-size:17px}
+  .meta{font-size:12px;color:var(--muted);margin-top:5px}
+  .score{position:absolute;top:12px;right:12px;font-weight:800}
+  .tag{display:inline-block;margin-top:9px;padding:5px 8px;border-radius:999px;font-size:12px}
+  .must .tag{background:#052e16;color:#86efac}
+  .limit .tag{background:#451a03;color:#fcd34d}
+  .avoid .tag{background:#450a0a;color:#fca5a5}
+  .normal .tag{background:#0c4a6e;color:#bae6fd}
+  .reason{font-size:13px;color:#dbeafe;margin-top:9px;line-height:1.5}
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}
+  .metric{background:#0b1220;border:1px solid #24324a;border-radius:14px;padding:12px}
+  .metric b{display:block;font-size:20px;margin-top:2px}
+  .metric span{font-size:12px;color:var(--muted)}
+  .best{margin-top:16px;background:linear-gradient(145deg,#082f49,#052e16);border:1px solid #14532d;border-radius:18px;padding:16px}
+  .best h3{margin-top:0;font-size:18px}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
+  .chip{padding:6px 9px;border-radius:999px;background:#0f172a;border:1px solid #334155;font-size:12px}
+  .small{font-size:12px;color:var(--muted);line-height:1.55}
+  .footer-note{margin-top:16px;padding:12px;border-radius:12px;background:#2a1f05;color:#fde68a;font-size:12px;line-height:1.5}
+  @media(max-width:850px){.grid{grid-template-columns:1fr}.menu-grid{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <span class="badge">추천 알고리즘 + 0/1 배낭 문제</span>
+      <h1>MealFit School</h1>
+      <p>오늘의 급식을 직접 입력하고 개인 목표와 영양정보를 비교해 “우선 섭취 / 적당히 / 조절”을 안내하는 프로토타입</p>
+    </div>
+  </div>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>1. 개인 섭취 기준 설정</h2>
+
+      <div class="row2">
+        <div>
+          <label>한 끼 목표 열량(kcal)
+            <input id="calGoal" type="number" value="800" min="300" max="1500" />
+          </label>
+        </div>
+        <div>
+          <label>단백질 목표(g)
+            <input id="proteinGoal" type="number" value="30" min="5" max="100" />
+          </label>
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:10px">
+        <div>
+          <label>나트륨 상한(mg)
+            <input id="sodiumMax" type="number" value="900" min="100" max="2500" />
+          </label>
+        </div>
+        <div>
+          <label>당류 상한(g)
+            <input id="sugarMax" type="number" value="20" min="1" max="100" />
+          </label>
+        </div>
+      </div>
+
+      <h3>건강/식사 목표</h3>
+      <label>우선 목표
+        <select id="focus">
+          <option value="balanced">균형 섭취</option>
+          <option value="protein">단백질 보충</option>
+          <option value="lowSodium">나트륨 줄이기</option>
+          <option value="lowSugar">당류 줄이기</option>
+          <option value="vegetable">채소·식이섬유 늘리기</option>
+        </select>
+      </label>
+
+      <h3>알레르기/회피 식품</h3>
+      <div class="checks">
+        <label class="check"><input type="checkbox" value="우유" class="allergy">우유</label>
+        <label class="check"><input type="checkbox" value="계란" class="allergy">계란</label>
+        <label class="check"><input type="checkbox" value="대두" class="allergy">대두</label>
+        <label class="check"><input type="checkbox" value="밀" class="allergy">밀</label>
+        <label class="check"><input type="checkbox" value="땅콩" class="allergy">땅콩</label>
+        <label class="check"><input type="checkbox" value="새우" class="allergy">새우</label>
+      </div>
+
+      
+      <h3>오늘의 급식 직접 입력</h3>
+      <div class="row2">
+        <div>
+          <label>메뉴명
+            <input id="foodName" type="text" placeholder="예: 제육볶음" />
+          </label>
+        </div>
+        <div>
+          <label>열량(kcal)
+            <input id="foodKcal" type="number" placeholder="250" min="0" />
+          </label>
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:10px">
+        <div>
+          <label>단백질(g)
+            <input id="foodProtein" type="number" placeholder="15" min="0" step="0.1" />
+          </label>
+        </div>
+        <div>
+          <label>나트륨(mg)
+            <input id="foodSodium" type="number" placeholder="400" min="0" />
+          </label>
+        </div>
+      </div>
+
+      <div class="row2" style="margin-top:10px">
+        <div>
+          <label>당류(g)
+            <input id="foodSugar" type="number" placeholder="5" min="0" step="0.1" />
+          </label>
+        </div>
+        <div>
+          <label>식이섬유(g)
+            <input id="foodFiber" type="number" placeholder="2" min="0" step="0.1" />
+          </label>
+        </div>
+      </div>
+
+      <label style="display:block;margin-top:10px">알레르기 성분
+        <input id="foodAllergens" type="text" placeholder="예: 계란, 우유, 대두 (없으면 비워두기)" />
+      </label>
+
+      <div class="row2" style="margin-top:10px">
+        <button class="secondary" onclick="addFood()">메뉴 추가</button>
+        <button class="secondary" onclick="clearFoods()">전체 삭제</button>
+      </div>
+
+      <div id="enteredFoods" class="small" style="margin-top:10px"></div>
+
+<button class="primary" onclick="analyze()">오늘 급식 분석하기</button>
+
+      <div class="footer-note">
+        이 앱은 교육용 프로토타입이며 진단·치료 목적이 아니다. 알레르기나 질환 관련 섭취는 실제 급식 알레르기 표기와 의료 전문가의 지침을 우선해야 한다.
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>2. 오늘의 급식</h2>
+      <div id="menuGrid" class="menu-grid"></div>
+
+      <div id="summary" class="summary"></div>
+
+      <div id="bestBox" class="best"></div>
+    </section>
+  </div>
+</div>
+
+<script>
+let foods = [
+  {name:"현미밥", kcal:310, protein:6, sodium:15, sugar:0, fiber:2.2, allergens:[], category:"grain"},
+  {name:"닭가슴살구이", kcal:210, protein:31, sodium:420, sugar:3, fiber:0, allergens:["대두"], category:"protein"},
+  {name:"시금치나물", kcal:55, protein:3, sodium:180, sugar:2, fiber:3.2, allergens:["대두"], category:"vegetable"},
+  {name:"된장국", kcal:85, protein:5, sodium:690, sugar:3, fiber:1.8, allergens:["대두"], category:"soup"},
+  {name:"계란말이", kcal:145, protein:10, sodium:310, sugar:2, fiber:0, allergens:["계란"], category:"protein"},
+  {name:"요거트", kcal:120, protein:5, sodium:85, sugar:14, fiber:0, allergens:["우유"], category:"dessert"},
+];
+
+
+function renderEnteredFoods(){
+  const box = document.getElementById("enteredFoods");
+  if(!box) return;
+  if(foods.length===0){
+    box.innerHTML = "입력된 급식 메뉴가 없습니다.";
+    return;
+  }
+  box.innerHTML = "<b>입력된 메뉴</b><br>" + foods.map((f,i)=>
+    `${i+1}. ${f.name} (${f.kcal}kcal) <button onclick="removeFood(${i})" style="padding:3px 7px;margin:3px 0 3px 5px;border-radius:7px;background:#334155;color:white;font-size:11px">삭제</button>`
+  ).join("<br>");
+}
+
+function addFood(){
+  const name = document.getElementById("foodName").value.trim();
+  const kcal = Number(document.getElementById("foodKcal").value);
+  const protein = Number(document.getElementById("foodProtein").value);
+  const sodium = Number(document.getElementById("foodSodium").value);
+  const sugar = Number(document.getElementById("foodSugar").value);
+  const fiber = Number(document.getElementById("foodFiber").value);
+  const allergensRaw = document.getElementById("foodAllergens").value.trim();
+
+  if(!name){
+    alert("메뉴명을 입력해 주세요.");
+    return;
+  }
+  if([kcal,protein,sodium,sugar,fiber].some(v => Number.isNaN(v) || v < 0)){
+    alert("영양정보는 0 이상의 숫자로 입력해 주세요.");
+    return;
+  }
+
+  const allergens = allergensRaw
+    ? allergensRaw.split(",").map(x=>x.trim()).filter(Boolean)
+    : [];
+
+  foods.push({
+    name, kcal, protein, sodium, sugar, fiber,
+    allergens, category:"custom"
+  });
+
+  ["foodName","foodKcal","foodProtein","foodSodium","foodSugar","foodFiber","foodAllergens"]
+    .forEach(id => document.getElementById(id).value = "");
+
+  renderEnteredFoods();
+  analyze();
+}
+
+function removeFood(index){
+  foods.splice(index, 1);
+  renderEnteredFoods();
+  analyze();
+}
+
+function clearFoods(){
+  if(!confirm("입력된 급식 메뉴를 모두 삭제할까요?")) return;
+  foods = [];
+  renderEnteredFoods();
+  analyze();
+}
+
+function weights(focus){
+  const base = {protein:1.3, fiber:1.0, sodium:1.0, sugar:1.0};
+  if(focus==="protein") base.protein=2.1;
+  if(focus==="lowSodium") base.sodium=1.8;
+  if(focus==="lowSugar") base.sugar=1.8;
+  if(focus==="vegetable") base.fiber=2.0;
+  return base;
+}
+
+function scoreFood(f, focus, goals, allergySet){
+  if(f.allergens.some(a=>allergySet.has(a))) {
+    return {score:-999, label:"피하기", cls:"avoid", reason:"선택한 알레르기/회피 식품과 겹침"};
+  }
+  const w = weights(focus);
+  let s = 50;
+  s += Math.min(f.protein/goals.protein, 1.2) * 28 * w.protein;
+  s += Math.min(f.fiber/4, 1.2) * 18 * w.fiber;
+  s -= Math.max(0, f.sodium/goals.sodiumMax) * 18 * w.sodium;
+  s -= Math.max(0, f.sugar/goals.sugarMax) * 18 * w.sugar;
+  s -= Math.max(0, f.kcal/goals.calGoal - 0.55) * 15;
+
+  let label="적당히", cls="normal";
+  if(s>=72){label="우선 섭취"; cls="must";}
+  else if(s<45){label="조절 권장"; cls="limit";}
+
+  const reasons=[];
+  if(f.protein>=10) reasons.push("단백질 보충에 도움");
+  if(f.fiber>=2.5) reasons.push("식이섬유가 비교적 높음");
+  if(f.sodium>goals.sodiumMax*0.55) reasons.push("나트륨 비중이 높음");
+  if(f.sugar>goals.sugarMax*0.5) reasons.push("당류 비중이 높음");
+  if(reasons.length===0) reasons.push("전체 목표와 비교해 무난한 편");
+  return {score:Math.round(s), label, cls, reason:reasons.join(" · ")};
+}
+
+// 0/1 knapsack: 칼로리를 용량으로 보고, 추천 점수를 가치로 최대화
+function knapsack(items, capacity){
+  const cap = Math.max(0, Math.floor(capacity/5));
+  const dp = Array.from({length:items.length+1},()=>Array(cap+1).fill(0));
+  for(let i=1;i<=items.length;i++){
+    const wt=Math.ceil(items[i-1].kcal/5);
+    const val=Math.max(0, items[i-1]._score);
+    for(let c=0;c<=cap;c++){
+      dp[i][c]=dp[i-1][c];
+      if(wt<=c) dp[i][c]=Math.max(dp[i][c], dp[i-1][c-wt]+val);
+    }
+  }
+  let c=cap, chosen=[];
+  for(let i=items.length;i>=1;i--){
+    if(dp[i][c]!==dp[i-1][c]){
+      chosen.push(items[i-1]);
+      c-=Math.ceil(items[i-1].kcal/5);
+    }
+  }
+  return chosen.reverse();
+}
+
+function analyze(){
+  const goals={
+    calGoal:+document.getElementById("calGoal").value,
+    protein:+document.getElementById("proteinGoal").value,
+    sodiumMax:+document.getElementById("sodiumMax").value,
+    sugarMax:+document.getElementById("sugarMax").value
+  };
+  const focus=document.getElementById("focus").value;
+  const allergySet=new Set([...document.querySelectorAll(".allergy:checked")].map(x=>x.value));
+
+  const analyzed=foods.map(f=>{
+    const r=scoreFood(f,focus,goals,allergySet);
+    return {...f,_score:r.score,_label:r.label,_cls:r.cls,_reason:r.reason};
+  });
+
+  document.getElementById("menuGrid").innerHTML = analyzed.length ? analyzed.map(f=>`
+    <div class="food ${f._cls}">
+      <div class="title">${f.name}</div>
+      <div class="score">${f._score===-999?"—":f._score}</div>
+      <div class="meta">${f.kcal} kcal · 단백질 ${f.protein}g · 나트륨 ${f.sodium}mg · 당류 ${f.sugar}g</div>
+      <span class="tag">${f._label}</span>
+      <div class="reason">${f._reason}</div>
+    </div>`).join("") : `<div class="small">오늘의 급식 메뉴를 왼쪽에서 직접 입력해 주세요.</div>`;
+
+  const usable=analyzed.filter(f=>f._score>-900);
+  const chosen=knapsack(usable,goals.calGoal);
+
+  const total=chosen.reduce((a,f)=>({
+    kcal:a.kcal+f.kcal, protein:a.protein+f.protein, sodium:a.sodium+f.sodium, sugar:a.sugar+f.sugar
+  }),{kcal:0,protein:0,sodium:0,sugar:0});
+
+  document.getElementById("summary").innerHTML=`
+    <div class="metric"><span>선택 조합 열량</span><b>${total.kcal}</b><span>kcal</span></div>
+    <div class="metric"><span>단백질</span><b>${total.protein}</b><span>g</span></div>
+    <div class="metric"><span>나트륨</span><b>${total.sodium}</b><span>mg</span></div>
+    <div class="metric"><span>당류</span><b>${total.sugar}</b><span>g</span></div>`;
+
+  const chips=chosen.map(f=>`<span class="chip">${f.name}</span>`).join("");
+  let note=[];
+  if(total.protein<goals.protein) note.push("단백질 목표보다 낮음");
+  if(total.sodium>goals.sodiumMax) note.push("나트륨 상한 초과");
+  if(total.sugar>goals.sugarMax) note.push("당류 상한 초과");
+  if(note.length===0) note.push("설정한 주요 기준을 대체로 만족");
+
+  document.getElementById("bestBox").innerHTML=`
+    <h3>추천</h3>
+    
+    <div class="chips">${chips || "<span class='chip'>추천 가능한 메뉴 없음</span>"}</div>
+    <div class="small" style="margin-top:10px">평가: ${note.join(" · ")}</div>`;
+}
+
+renderEnteredFoods();
+analyze();
+</script>
+</body>
+</html>
