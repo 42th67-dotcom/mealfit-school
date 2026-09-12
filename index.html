@@ -54,6 +54,13 @@
   .chip{padding:6px 9px;border-radius:999px;background:#0f172a;border:1px solid #334155;font-size:12px}
   .small{font-size:12px;color:var(--muted);line-height:1.55}
   .footer-note{margin-top:16px;padding:12px;border-radius:12px;background:#2a1f05;color:#fde68a;font-size:12px;line-height:1.5}
+  .school-results{display:grid;gap:7px;margin-top:8px;max-height:230px;overflow:auto}
+  .school-item{width:100%;text-align:left;background:#0b1220;color:#e2e8f0;border:1px solid #334155;border-radius:10px;padding:10px;cursor:pointer}
+  .school-item:hover{border-color:#38bdf8;background:#101b2d}
+  .school-item.selected{border-color:#22c55e;background:#052e16}
+  .school-item b{display:block;font-size:13px}
+  .school-item span{display:block;color:#94a3b8;font-size:11px;margin-top:3px;line-height:1.4}
+  .selected-school{margin-top:8px;padding:9px 10px;border-radius:10px;background:#082f49;border:1px solid #0e7490;font-size:12px;line-height:1.5}
   @media(max-width:850px){.grid{grid-template-columns:1fr}.menu-grid{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,1fr)}}
 </style>
 </head>
@@ -63,7 +70,7 @@
     <div>
       <span class="badge">추천 알고리즘 + 0/1 배낭 문제</span>
       <h1>MealFit School</h1>
-      <p>학교 급식을 자동으로 불러오거나 직접 입력하고, 개인 목표에 맞는 섭취 우선순위를 추천하는 앱</p>
+      <p>전국 학교를 검색해 급식을 자동으로 불러오거나 직접 입력하고, 개인 목표에 맞는 섭취 우선순위를 추천하는 앱</p>
     </div>
   </div>
 
@@ -120,8 +127,17 @@
 
       
       <h3>오늘의 급식 자동 불러오기</h3>
-      <div class="small" style="margin-bottom:8px">학교의 급식을 나이스(NEIS) 급식식단정보에서 불러옵니다.</div>
-      <div class="row2">
+      <div class="small" style="margin-bottom:8px">학교를 검색한 뒤 나이스(NEIS)에서 해당 학교의 급식을 불러옵니다.</div>
+
+      <label>학교 검색
+        <input id="schoolQuery" type="text" placeholder="예: 서울과학고등학교, 대전과학고등학교" onkeydown="if(event.key==='Enter'){event.preventDefault();searchSchools();}" />
+      </label>
+      <button id="schoolSearchBtn" class="secondary" style="width:100%;margin-top:8px" onclick="searchSchools()">학교 검색</button>
+      <div id="schoolSearchStatus" class="small" style="margin-top:7px"></div>
+      <div id="schoolResults" class="school-results"></div>
+      <div id="selectedSchoolBox" class="selected-school" style="display:none"></div>
+
+      <div class="row2" style="margin-top:12px">
         <div>
           <label>날짜
             <input id="mealDate" type="date" />
@@ -226,9 +242,8 @@ let foods = [];
 
 
 
-const SCHOOL_NAME = "학교";
-const FALLBACK_OFFICE_CODE = "G10";
-const FALLBACK_SCHOOL_CODE = "G100000177";
+let selectedSchool = null;
+let schoolSearchRows = [];
 
 const ALLERGEN_MAP = {
   "1":"계란", "2":"우유", "4":"땅콩", "5":"대두", "6":"밀", "9":"새우"
@@ -367,16 +382,105 @@ async function fetchJson(url){
   return await res.json();
 }
 
-async function findSchoolCodes(key){
-  const p=new URLSearchParams({Type:"json",pIndex:"1",pSize:"20",SCHUL_NM:SCHOOL_NAME});
-  if(key) p.set("KEY",key);
+function schoolLabel(row){
+  const region = row.LCTN_SC_NM || row.ATPT_OFCDC_SC_NM || "";
+  const type = row.SCHUL_KND_SC_NM || "";
+  const address = row.ORG_RDNMA || "";
+  return [region, type, address].filter(Boolean).join(" · ");
+}
+
+function renderSchoolResults(rows){
+  const box=document.getElementById("schoolResults");
+  if(!rows.length){
+    box.innerHTML="";
+    return;
+  }
+  box.innerHTML=rows.map((r,i)=>`
+    <button type="button" class="school-item ${selectedSchool && selectedSchool.SD_SCHUL_CODE===r.SD_SCHUL_CODE ? "selected" : ""}" onclick="selectSchool(${i})">
+      <b>${escapeHtml(r.SCHUL_NM || "학교명 없음")}</b>
+      <span>${escapeHtml(schoolLabel(r))}</span>
+    </button>
+  `).join("");
+}
+
+function updateSelectedSchoolBox(){
+  const box=document.getElementById("selectedSchoolBox");
+  if(!selectedSchool){
+    box.style.display="none";
+    box.innerHTML="";
+    return;
+  }
+  box.style.display="block";
+  box.innerHTML=`<b>선택된 학교: ${escapeHtml(selectedSchool.SCHUL_NM)}</b><br>${escapeHtml(schoolLabel(selectedSchool))}`;
+}
+
+function selectSchool(index){
+  const row=schoolSearchRows[index];
+  if(!row) return;
+  selectedSchool={
+    SCHUL_NM:row.SCHUL_NM,
+    ATPT_OFCDC_SC_CODE:row.ATPT_OFCDC_SC_CODE,
+    SD_SCHUL_CODE:row.SD_SCHUL_CODE,
+    ATPT_OFCDC_SC_NM:row.ATPT_OFCDC_SC_NM || "",
+    LCTN_SC_NM:row.LCTN_SC_NM || "",
+    SCHUL_KND_SC_NM:row.SCHUL_KND_SC_NM || "",
+    ORG_RDNMA:row.ORG_RDNMA || ""
+  };
+  try{ localStorage.setItem("mealfitSelectedSchool",JSON.stringify(selectedSchool)); }catch(e){}
+  renderSchoolResults(schoolSearchRows);
+  updateSelectedSchoolBox();
+  document.getElementById("schoolSearchStatus").textContent="학교가 선택되었습니다.";
+}
+
+async function searchSchools(){
+  const query=document.getElementById("schoolQuery").value.trim();
+  const key=document.getElementById("neisKey").value.trim();
+  const btn=document.getElementById("schoolSearchBtn");
+  const status=document.getElementById("schoolSearchStatus");
+  if(query.length<2){
+    alert("학교 이름을 2글자 이상 입력해 주세요.");
+    return;
+  }
+  btn.disabled=true;
+  btn.textContent="검색 중...";
+  status.textContent="학교를 검색하는 중입니다.";
+  document.getElementById("schoolResults").innerHTML="";
   try{
+    const p=new URLSearchParams({
+      Type:"json",
+      pIndex:"1",
+      pSize:"50",
+      SCHUL_NM:query
+    });
+    if(key) p.set("KEY",key);
     const j=await fetchJson("https://open.neis.go.kr/hub/schoolInfo?"+p.toString());
     const rows=rowsFromNeis(j,"schoolInfo");
-    const exact=rows.find(r=>r.SCHUL_NM===SCHOOL_NAME) || rows[0];
-    if(exact) return {office:exact.ATPT_OFCDC_SC_CODE, school:exact.SD_SCHUL_CODE};
+    schoolSearchRows=rows;
+    if(!rows.length){
+      const msg=j?.RESULT?.MESSAGE || "검색 결과가 없습니다.";
+      status.textContent=msg;
+      return;
+    }
+    status.textContent=`${rows.length}개 학교를 찾았습니다. 사용할 학교를 선택해 주세요.`;
+    renderSchoolResults(rows);
+  }catch(e){
+    console.error(e);
+    status.textContent="학교 검색에 실패했습니다: "+e.message;
+  }finally{
+    btn.disabled=false;
+    btn.textContent="학교 검색";
+  }
+}
+
+function restoreSelectedSchool(){
+  try{
+    const saved=JSON.parse(localStorage.getItem("mealfitSelectedSchool") || "null");
+    if(saved?.ATPT_OFCDC_SC_CODE && saved?.SD_SCHUL_CODE){
+      selectedSchool=saved;
+      updateSelectedSchoolBox();
+      document.getElementById("schoolSearchStatus").textContent="이전에 선택한 학교를 불러왔습니다.";
+    }
   }catch(e){}
-  return {office:FALLBACK_OFFICE_CODE, school:FALLBACK_SCHOOL_CODE};
 }
 
 async function loadNeisMeal(){
@@ -385,15 +489,18 @@ async function loadNeisMeal(){
   const date=document.getElementById("mealDate").value;
   const mealCode=document.getElementById("mealType").value;
   const key=document.getElementById("neisKey").value.trim();
+  if(!selectedSchool){
+    alert("먼저 학교를 검색하고 선택해 주세요.");
+    return;
+  }
   if(!date){ alert("날짜를 선택해 주세요."); return; }
   btn.disabled=true; btn.textContent="불러오는 중...";
-  status.textContent="나이스 급식 정보를 불러오는 중입니다.";
+  status.textContent=`${selectedSchool.SCHUL_NM} 급식 정보를 불러오는 중입니다.`;
   try{
-    const codes=await findSchoolCodes(key);
     const p=new URLSearchParams({
       Type:"json", pIndex:"1", pSize:"100",
-      ATPT_OFCDC_SC_CODE:codes.office,
-      SD_SCHUL_CODE:codes.school,
+      ATPT_OFCDC_SC_CODE:selectedSchool.ATPT_OFCDC_SC_CODE,
+      SD_SCHUL_CODE:selectedSchool.SD_SCHUL_CODE,
       MLSV_YMD:ymd(date),
       MMEAL_SC_CODE:mealCode
     });
@@ -408,7 +515,7 @@ async function loadNeisMeal(){
     renderEnteredFoods();
     analyze();
     const mealName=rows[0].MMEAL_SC_NM || document.getElementById("mealType").selectedOptions[0].text;
-    status.innerHTML=`<b>${escapeHtml(date)} ${escapeHtml(mealName)}</b> 급식 ${foods.length}개 메뉴를 불러왔습니다. <br>※ 메뉴별 영양값은 추정값입니다. 특히 NEIS 급식 데이터에 별도 제공되지 않는 <b>나트륨·당류는 메뉴 종류를 바탕으로 추정</b>하여 표시합니다.`;
+    status.innerHTML=`<b>${escapeHtml(selectedSchool.SCHUL_NM)} · ${escapeHtml(date)} ${escapeHtml(mealName)}</b> 급식 ${foods.length}개 메뉴를 불러왔습니다. <br>※ 메뉴별 영양값은 추정값입니다. 특히 NEIS 급식 데이터에 별도 제공되지 않는 <b>나트륨·당류는 메뉴 종류를 바탕으로 추정</b>하여 표시합니다.`;
   }catch(e){
     console.error(e);
     status.innerHTML=`불러오기에 실패했습니다: ${escapeHtml(e.message)}<br>인증키를 입력하거나, 아래 직접 입력 기능을 이용해 주세요.`;
@@ -591,6 +698,7 @@ function analyze(){
 }
 
 setDefaultDate();
+restoreSelectedSchool();
 renderEnteredFoods();
 analyze();
 </script>
