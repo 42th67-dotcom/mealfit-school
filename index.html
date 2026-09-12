@@ -63,7 +63,7 @@
     <div>
       <span class="badge">추천 알고리즘 + 0/1 배낭 문제</span>
       <h1>MealFit School</h1>
-      <p>오늘의 급식을 직접 입력하고 개인 목표와 영양정보를 비교해 “우선 섭취 / 적당히 / 조절”을 안내하는 프로토타입</p>
+      <p>대전과학고 급식을 자동으로 불러오거나 직접 입력하고, 개인 목표에 맞는 섭취 우선순위를 추천하는 앱</p>
     </div>
   </div>
 
@@ -119,7 +119,35 @@
       </div>
 
       
-      <h3>오늘의 급식 직접 입력</h3>
+      <h3>오늘의 급식 자동 불러오기</h3>
+      <div class="small" style="margin-bottom:8px">대전과학고등학교의 급식을 나이스(NEIS) 급식식단정보에서 불러옵니다.</div>
+      <div class="row2">
+        <div>
+          <label>날짜
+            <input id="mealDate" type="date" />
+          </label>
+        </div>
+        <div>
+          <label>식사
+            <select id="mealType">
+              <option value="1">아침</option>
+              <option value="2" selected>점심</option>
+              <option value="3">저녁</option>
+            </select>
+          </label>
+        </div>
+      </div>
+      <details style="margin-top:10px">
+        <summary class="small" style="cursor:pointer">NEIS 인증키 설정(선택)</summary>
+        <label style="display:block;margin-top:8px">인증키
+          <input id="neisKey" type="password" placeholder="없으면 비워 두기" />
+        </label>
+        <div class="small" style="margin-top:6px">인증키 없이도 조회를 시도하며, 제한이 발생하면 나이스 교육정보 개방 포털에서 발급받은 키를 입력하세요.</div>
+      </details>
+      <button id="loadMealBtn" class="primary" style="margin-top:10px" onclick="loadNeisMeal()">급식 자동 불러오기</button>
+      <div id="mealLoadStatus" class="small" style="margin-top:8px"></div>
+
+      <h3>급식 직접 입력 / 수정</h3>
       <div class="row2">
         <div>
           <label>메뉴명
@@ -189,15 +217,212 @@
 </div>
 
 <script>
-let foods = [
-  {name:"현미밥", kcal:310, protein:6, sodium:15, sugar:0, fiber:2.2, allergens:[], category:"grain"},
-  {name:"닭가슴살구이", kcal:210, protein:31, sodium:420, sugar:3, fiber:0, allergens:["대두"], category:"protein"},
-  {name:"시금치나물", kcal:55, protein:3, sodium:180, sugar:2, fiber:3.2, allergens:["대두"], category:"vegetable"},
-  {name:"된장국", kcal:85, protein:5, sodium:690, sugar:3, fiber:1.8, allergens:["대두"], category:"soup"},
-  {name:"계란말이", kcal:145, protein:10, sodium:310, sugar:2, fiber:0, allergens:["계란"], category:"protein"},
-  {name:"요거트", kcal:120, protein:5, sodium:85, sugar:14, fiber:0, allergens:["우유"], category:"dessert"},
-];
+const fmt2 = (value) => {
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : value;
+};
 
+let foods = [];
+
+
+
+const SCHOOL_NAME = "대전과학고등학교";
+const FALLBACK_OFFICE_CODE = "G10";
+const FALLBACK_SCHOOL_CODE = "G100000177";
+
+const ALLERGEN_MAP = {
+  "1":"계란", "2":"우유", "4":"땅콩", "5":"대두", "6":"밀", "9":"새우"
+};
+
+function ymd(dateString){
+  return (dateString || "").replaceAll("-", "");
+}
+
+function escapeHtml(s){
+  return String(s ?? "").replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+
+function stripAllergenText(name){
+  return name
+    .replace(/\s*\([0-9.]+\)\s*$/g, "")
+    .replace(/\s*[0-9]+(?:\.[0-9]+)*\.?\s*$/g, "")
+    .replace(/\*/g, "")
+    .trim();
+}
+
+function parseDish(raw){
+  const cleanRaw = raw.replace(/<br\s*\/?>/gi, "\n").replace(/&amp;/g,"&");
+  return cleanRaw.split(/\n+/).map(x=>x.trim()).filter(Boolean).map(line=>{
+    const nums = [];
+    const m = line.match(/(?:\(|\s)([0-9]+(?:\.[0-9]+)*\.?)\)?\s*$/);
+    if(m){
+      m[1].split(".").filter(Boolean).forEach(n=>nums.push(n));
+    }
+    const allergens = [...new Set(nums.map(n=>ALLERGEN_MAP[n]).filter(Boolean))];
+    return {name:stripAllergenText(line), allergens};
+  });
+}
+
+function parseNutrition(text){
+  const plain=(text||"").replace(/<br\s*\/?>/gi,"\n").replace(/&nbsp;/gi," ");
+  const get=(keys)=>{
+    for(const k of keys){
+      const re=new RegExp(k+"[^0-9]*([0-9]+(?:\\.[0-9]+)?)", "i");
+      const m=plain.match(re); if(m) return Number(m[1]);
+    }
+    return 0;
+  };
+  return {
+    protein:get(["단백질\\(g\\)","단백질"]),
+    sodium:get(["나트륨\\(mg\\)","나트륨"]),
+    sugar:get(["당류\\(g\\)","당류"]),
+    fiber:get(["식이섬유\\(g\\)","식이섬유"])
+  };
+}
+
+function numberFromCalInfo(s){
+  const m=String(s||"").match(/[0-9]+(?:\.[0-9]+)?/);
+  return m ? Number(m[0]) : 0;
+}
+
+function categoryProfile(name){
+  const n=name.replace(/\s/g,"");
+  if(/밥|라이스|볶음밥|덮밥|비빔밥|죽/.test(n)) return {kcal:1.6,protein:.6,sodium:.15,sugar:.2,fiber:.7,category:"grain"};
+  if(/국|탕|찌개|전골|스프|미역국|된장국/.test(n)) return {kcal:.65,protein:.7,sodium:2.3,sugar:.4,fiber:.5,category:"soup"};
+  if(/고기|불고기|갈비|닭|치킨|돈까스|돈가스|제육|돼지|소고기|쇠고기|생선|연어|고등어|계란|달걀|두부|함박|스테이크|쭈꾸미|주꾸미/.test(n)) return {kcal:1.5,protein:2.3,sodium:1.3,sugar:.6,fiber:.25,category:"protein"};
+  if(/나물|샐러드|무침|겉절이|김치|채소|야채|오이|시금치|콩나물|버섯/.test(n)) return {kcal:.45,protein:.45,sodium:1.05,sugar:.5,fiber:2.2,category:"vegetable"};
+  if(/우유|요거트|요구르트|과일|사과|배|귤|바나나|주스|쥬스|케이크|쿠키|빵|바|푸딩|아이스/.test(n)) return {kcal:.95,protein:.35,sodium:.3,sugar:2.4,fiber:.45,category:"dessert"};
+  return {kcal:.8,protein:.7,sodium:1.0,sugar:.7,fiber:.8,category:"custom"};
+}
+
+function distributeTotal(dishes,total,field){
+  const ws=dishes.map(d=>categoryProfile(d.name)[field] || 1);
+  const sum=ws.reduce((a,b)=>a+b,0)||1;
+  return ws.map(w=>total*w/sum);
+}
+
+function estimateSodiumSugar(name){
+  const n=(name||"").replace(/\s/g,"");
+
+  // 메뉴명이 좀 더 구체적인 경우 우선 적용
+  if(/김치|깍두기|겉절이/.test(n)) return {sodium:420, sugar:2.5};
+  if(/국|탕|찌개|전골|스프/.test(n)) return {sodium:520, sugar:2.0};
+  if(/라면|우동|국수|짜장|짬뽕/.test(n)) return {sodium:650, sugar:5.0};
+  if(/불고기|제육|갈비|볶음|양념치킨|강정/.test(n)) return {sodium:430, sugar:6.0};
+  if(/돈까스|돈가스|치킨|튀김|함박|스테이크/.test(n)) return {sodium:390, sugar:4.0};
+  if(/햄|소시지|베이컨/.test(n)) return {sodium:480, sugar:3.0};
+  if(/나물|샐러드|무침|오이|시금치|콩나물|버섯/.test(n)) return {sodium:210, sugar:2.5};
+  if(/우유/.test(n)) return {sodium:100, sugar:10.0};
+  if(/요거트|요구르트/.test(n)) return {sodium:85, sugar:12.0};
+  if(/주스|쥬스|에이드/.test(n)) return {sodium:30, sugar:16.0};
+  if(/케이크|쿠키|초코|아이스|푸딩|도넛|빵/.test(n)) return {sodium:170, sugar:14.0};
+  if(/과일|사과|배|귤|바나나|포도|수박|멜론/.test(n)) return {sodium:5, sugar:10.0};
+  if(/밥|라이스|볶음밥|덮밥|비빔밥|죽/.test(n)) return {sodium:45, sugar:1.5};
+  if(/계란|달걀|두부/.test(n)) return {sodium:190, sugar:1.5};
+  if(/고기|닭|돼지|소고기|쇠고기|생선|연어|고등어|주꾸미|쭈꾸미/.test(n))
+    return {sodium:320, sugar:3.0};
+
+  return {sodium:220, sugar:3.0};
+}
+
+function mealRowToFoods(row){
+  const dishes=parseDish(row.DDISH_NM || "");
+  if(!dishes.length) return [];
+  const nt=parseNutrition(row.NTR_INFO || "");
+  const totalKcal=numberFromCalInfo(row.CAL_INFO);
+  const kcal=distributeTotal(dishes,totalKcal,"kcal");
+  const protein=distributeTotal(dishes,nt.protein,"protein");
+  const sodium = nt.sodium > 0
+    ? distributeTotal(dishes,nt.sodium,"sodium")
+    : dishes.map(d=>estimateSodiumSugar(d.name).sodium);
+
+  const sugar = nt.sugar > 0
+    ? distributeTotal(dishes,nt.sugar,"sugar")
+    : dishes.map(d=>estimateSodiumSugar(d.name).sugar);
+
+  const fiber=distributeTotal(dishes,nt.fiber,"fiber");
+  return dishes.map((d,i)=>({
+    name:d.name,
+    kcal:+(kcal[i]||0).toFixed(2),
+    protein:+(protein[i]||0).toFixed(2),
+    sodium:+(sodium[i]||0).toFixed(2),
+    sugar:+(sugar[i]||0).toFixed(2),
+    fiber:+(fiber[i]||0).toFixed(2),
+    allergens:d.allergens,
+    category:categoryProfile(d.name).category,
+    auto:true
+  }));
+}
+
+function rowsFromNeis(json, key){
+  const block=json?.[key];
+  if(!Array.isArray(block)) return [];
+  const rowPart=block.find(x=>Array.isArray(x.row));
+  return rowPart?.row || [];
+}
+
+async function fetchJson(url){
+  const res=await fetch(url,{cache:"no-store"});
+  if(!res.ok) throw new Error(`HTTP ${res.status}`);
+  return await res.json();
+}
+
+async function findSchoolCodes(key){
+  const p=new URLSearchParams({Type:"json",pIndex:"1",pSize:"20",SCHUL_NM:SCHOOL_NAME});
+  if(key) p.set("KEY",key);
+  try{
+    const j=await fetchJson("https://open.neis.go.kr/hub/schoolInfo?"+p.toString());
+    const rows=rowsFromNeis(j,"schoolInfo");
+    const exact=rows.find(r=>r.SCHUL_NM===SCHOOL_NAME) || rows[0];
+    if(exact) return {office:exact.ATPT_OFCDC_SC_CODE, school:exact.SD_SCHUL_CODE};
+  }catch(e){}
+  return {office:FALLBACK_OFFICE_CODE, school:FALLBACK_SCHOOL_CODE};
+}
+
+async function loadNeisMeal(){
+  const btn=document.getElementById("loadMealBtn");
+  const status=document.getElementById("mealLoadStatus");
+  const date=document.getElementById("mealDate").value;
+  const mealCode=document.getElementById("mealType").value;
+  const key=document.getElementById("neisKey").value.trim();
+  if(!date){ alert("날짜를 선택해 주세요."); return; }
+  btn.disabled=true; btn.textContent="불러오는 중...";
+  status.textContent="나이스 급식 정보를 불러오는 중입니다.";
+  try{
+    const codes=await findSchoolCodes(key);
+    const p=new URLSearchParams({
+      Type:"json", pIndex:"1", pSize:"100",
+      ATPT_OFCDC_SC_CODE:codes.office,
+      SD_SCHUL_CODE:codes.school,
+      MLSV_YMD:ymd(date),
+      MMEAL_SC_CODE:mealCode
+    });
+    if(key) p.set("KEY",key);
+    const j=await fetchJson("https://open.neis.go.kr/hub/mealServiceDietInfo?"+p.toString());
+    const rows=rowsFromNeis(j,"mealServiceDietInfo");
+    if(!rows.length){
+      const msg=j?.RESULT?.MESSAGE || "해당 날짜의 급식 정보가 없습니다.";
+      throw new Error(msg);
+    }
+    foods=mealRowToFoods(rows[0]);
+    renderEnteredFoods();
+    analyze();
+    const mealName=rows[0].MMEAL_SC_NM || document.getElementById("mealType").selectedOptions[0].text;
+    status.innerHTML=`<b>${escapeHtml(date)} ${escapeHtml(mealName)}</b> 급식 ${foods.length}개 메뉴를 불러왔습니다. <br>※ 메뉴별 영양값은 추정값입니다. 특히 NEIS 급식 데이터에 별도 제공되지 않는 <b>나트륨·당류는 메뉴 종류를 바탕으로 추정</b>하여 표시합니다.`;
+  }catch(e){
+    console.error(e);
+    status.innerHTML=`불러오기에 실패했습니다: ${escapeHtml(e.message)}<br>인증키를 입력하거나, 아래 직접 입력 기능을 이용해 주세요.`;
+  }finally{
+    btn.disabled=false; btn.textContent="급식 자동 불러오기";
+  }
+}
+
+function setDefaultDate(){
+  const el=document.getElementById("mealDate");
+  const now=new Date();
+  const local=new Date(now.getTime()-now.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  el.value=local;
+}
 
 function renderEnteredFoods(){
   const box = document.getElementById("enteredFoods");
@@ -207,7 +432,7 @@ function renderEnteredFoods(){
     return;
   }
   box.innerHTML = "<b>입력된 메뉴</b><br>" + foods.map((f,i)=>
-    `${i+1}. ${f.name} (${f.kcal}kcal) <button onclick="removeFood(${i})" style="padding:3px 7px;margin:3px 0 3px 5px;border-radius:7px;background:#334155;color:white;font-size:11px">삭제</button>`
+    `${i+1}. ${f.name} (${fmt2(f.kcal)}kcal)${f.auto?" · 자동":""} <button onclick="removeFood(${i})" style="padding:3px 7px;margin:3px 0 3px 5px;border-radius:7px;background:#334155;color:white;font-size:11px">삭제</button>`
   ).join("<br>");
 }
 
@@ -333,10 +558,10 @@ function analyze(){
     <div class="food ${f._cls}">
       <div class="title">${f.name}</div>
       <div class="score">${f._score===-999?"—":f._score}</div>
-      <div class="meta">${f.kcal} kcal · 단백질 ${f.protein}g · 나트륨 ${f.sodium}mg · 당류 ${f.sugar}g</div>
+      <div class="meta">${fmt2(f.kcal)} kcal · 단백질 ${fmt2(f.protein)}g · 나트륨 ${fmt2(f.sodium)}mg · 당류 ${fmt2(f.sugar)}g${f.auto?" · 메뉴별 추정값":""}</div>
       <span class="tag">${f._label}</span>
       <div class="reason">${f._reason}</div>
-    </div>`).join("") : `<div class="small">오늘의 급식 메뉴를 왼쪽에서 직접 입력해 주세요.</div>`;
+    </div>`).join("") : `<div class="small">날짜와 식사를 선택해 급식을 자동으로 불러오거나 직접 입력해 주세요.</div>`;
 
   const usable=analyzed.filter(f=>f._score>-900);
   const chosen=knapsack(usable,goals.calGoal);
@@ -346,10 +571,10 @@ function analyze(){
   }),{kcal:0,protein:0,sodium:0,sugar:0});
 
   document.getElementById("summary").innerHTML=`
-    <div class="metric"><span>선택 조합 열량</span><b>${total.kcal}</b><span>kcal</span></div>
-    <div class="metric"><span>단백질</span><b>${total.protein}</b><span>g</span></div>
-    <div class="metric"><span>나트륨</span><b>${total.sodium}</b><span>mg</span></div>
-    <div class="metric"><span>당류</span><b>${total.sugar}</b><span>g</span></div>`;
+    <div class="metric"><span>선택 조합 열량</span><b>${fmt2(total.kcal)}</b><span>kcal</span></div>
+    <div class="metric"><span>단백질</span><b>${fmt2(total.protein)}</b><span>g</span></div>
+    <div class="metric"><span>나트륨</span><b>${fmt2(total.sodium)}</b><span>mg</span></div>
+    <div class="metric"><span>당류</span><b>${fmt2(total.sugar)}</b><span>g</span></div>`;
 
   const chips=chosen.map(f=>`<span class="chip">${f.name}</span>`).join("");
   let note=[];
@@ -365,6 +590,7 @@ function analyze(){
     <div class="small" style="margin-top:10px">평가: ${note.join(" · ")}</div>`;
 }
 
+setDefaultDate();
 renderEnteredFoods();
 analyze();
 </script>
